@@ -14,6 +14,8 @@ import sys
 import fnmatch
 from pathlib import Path
 from datetime import datetime
+import json
+import json
 
 DEFAULT_IGNORE = {
     '.git', 'node_modules', '.next', 'dist', 'build', 'target',
@@ -127,6 +129,7 @@ def main():
     p.add_argument('--files', action='store_true', help='Include source file contents')
     p.add_argument('--log', type=int, default=20, help='Number of recent commits (default: 20, 0=skip)')
     p.add_argument('--output', '-o', help='Write to file instead of stdout')
+    p.add_argument('--json', action='store_true', help='Output as JSON')
     p.add_argument('--dir', default=os.getcwd(), help='Target directory (default: cwd)')
     args = p.parse_args()
 
@@ -134,6 +137,26 @@ def main():
     if not os.path.isdir(os.path.join(target, '.git')):
         print(f"❌ Not a git repo: {target}", file=sys.stderr)
         sys.exit(1)
+
+    if args.json:
+        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], target)
+        remote = run(["git", "remote", "get-url", "origin"], target)
+        clean = not run(["git", "diff", "--stat"], target) and not run(["git", "diff", "--cached", "--stat"], target)
+        log_entries = []
+        if args.log > 0:
+            raw = run(["git", "log", f"--max-count={args.log}", "--pretty=format:%h|||%s|||%an|||%ar"], target)
+            for line in raw.split(chr(10)) if raw else []:
+                parts = line.split("|||", 3)
+                if len(parts) == 4:
+                    log_entries.append({"hash": parts[0], "subject": parts[1], "author": parts[2], "date": parts[3]})
+        data = {"repo": os.path.basename(target), "branch": branch, "remote": remote, "clean": clean, "commits": log_entries}
+        output = json.dumps(data, indent=2)
+        if args.output:
+            Path(args.output).write_text(output)
+            print(f"Written to {args.output}")
+        else:
+            print(output)
+        return
 
     repo_name = os.path.basename(target)
     sections = []
